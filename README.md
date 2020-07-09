@@ -20,3 +20,20 @@ The git installation is configured with `name` and `email` and if not present ne
 - `Git2Go: Show public ssh key`
 
 [GitHub](https://github.com/lebalz/git2go)
+
+
+# Develop
+
+This project contains git submodules. To get started, run
+
+```sh
+git clone git@github.com:lebalz/git2go.git
+git submodule init
+git submodule update
+```
+
+To install the node modules, run
+
+```sh
+yarn install
+```
