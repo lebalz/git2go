@@ -9,8 +9,8 @@ import {
   installChocolatey,
   inElevatedShell,
   inShell,
-} from "./chocolatey";
-import { vscodeInstallBrew } from "./homebrew";
+} from "./package-manager/src/chocolatey";
+import { vscodeInstallBrew } from "./package-manager/src/homebrew";
 import { Progress, SuccessfulMsg, ErroneousMsg, SuccessMsg } from "./helpers";
 
 function installGitWindows(

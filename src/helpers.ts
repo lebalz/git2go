@@ -22,13 +22,6 @@ export interface Erroneous extends SuccessMsg {
   error: string;
 }
 
-export function promptRootPassword(): Thenable<string | undefined> {
-  return vscode.window.showInputBox({
-    password: true,
-    prompt: "Root Password (used to login to your computer)",
-  });
-}
-
 export function SuccessfulMsg(msg: string): Successful {
   return { success: true, msg: msg };
 }
