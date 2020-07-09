@@ -149,12 +149,12 @@ function generateSshKeys() {
 function configure(force: boolean = false) {
   vscode.window.showInformationMessage(`Configure git settings`);
   execSync('git config --global core.editor nano');
-  let userName = execSync('git config --global user.name').toString();
-  let userEmail = execSync('git config --global user.email').toString();
+  let userName = execSync('git config --global user.name').toString().trim();
+  let userEmail = execSync('git config --global user.email').toString().trim();
 
   return new Promise((resolve) => {
     if (userName.length === 0 || force) {
-      return resolve(vscode.window.showInputBox({ prompt: "[Git] your name", })
+      return resolve(vscode.window.showInputBox({ prompt: "[Git] your name", value: userName })
         .then((gitName) => {
           if (gitName) {
             execSync(`git config --global user.name "${gitName.trim()}"`);
@@ -165,7 +165,7 @@ function configure(force: boolean = false) {
   }).then(() => {
     return new Promise((resolve) => {
       if (userEmail.length === 0 || force) {
-        return resolve(vscode.window.showInputBox({ prompt: "[Git] your email address", })
+        return resolve(vscode.window.showInputBox({ prompt: "[Git] your email address", value: userEmail })
           .then((gitMail) => {
             if (gitMail) {
               execSync(`git config --global user.email "${gitMail.trim()}"`);
