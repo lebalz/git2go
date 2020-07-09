@@ -42,10 +42,7 @@ function installGitWindows(
       increment: 45,
     });
     return inElevatedShell(
-      `
-      choco install -y git.install | Tee-Object -FilePath ${logPath} | Write-Output
-      \`$env:ChocolateyInstall = Convert-Path "$((Get-Command choco).Path)\\..\\.."
-      Import-Module "$env:ChocolateyInstall\\helpers\\chocolateyProfile.psm1"
+      `choco install -y git.install | Tee-Object -FilePath ${logPath} | Write-Output
       refreshenv
       `
     )
