@@ -8,7 +8,8 @@ import * as fs from "fs";
 import {
   installChocolatey,
   inElevatedShell,
-  inShell,
+  RELOAD_ENVIRONMENT_CMD,
+  powershell,
 } from "./package-manager/src/chocolatey";
 import { vscodeInstallBrew } from "./package-manager/src/homebrew";
 import { Progress, SuccessfulMsg, ErroneousMsg, SuccessMsg } from "./helpers";
@@ -42,7 +43,8 @@ function installGitWindows(
       increment: 45,
     });
     return inElevatedShell(
-      `choco install -y git.install | Tee-Object -FilePath ${logPath} | Write-Output
+      `\`${RELOAD_ENVIRONMENT_CMD}
+      choco install -y git.install | Tee-Object -FilePath ${logPath} | Write-Output
       refreshenv
       `
     )
@@ -95,9 +97,12 @@ function isGitInstalled(): Thenable<boolean> {
         return false;
       });
   } else if (process.platform === "win32") {
-    return inShell(`choco list -lo`)
+    const ps = powershell();
+    ps.addCommand(RELOAD_ENVIRONMENT_CMD);
+    ps.addCommand('choco list -lo');
+    return ps.invoke()
       .then((result) => {
-        return /git /i.test(result);
+        return /git\.install /i.test(result);
       })
       .catch(() => false);
   }
@@ -223,8 +228,8 @@ export function activate(context: vscode.ExtensionContext) {
         (progress, _token) => {
           progress.report({ message: "Start...", increment: 5 });
           return installGit(context, progress)
-            .then((location) => {
-              if (!location) {
+            .then((success) => {
+              if (!success.success) {
                 throw new Error("Installation failed.");
               }
               progress.report({ message: "Configure...", increment: 95 });
