@@ -17,8 +17,8 @@
 		"url": "https://github.com/lebalz/git2go"
 	},
 	"galleryBanner": {
-		"color": "#0b1b3d",
-		"theme": "dark"
+		"color": "#ffffff",
+		"theme": "light"
 	},
 	"icon": "logo.png",
 	"categories": [

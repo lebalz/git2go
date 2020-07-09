@@ -46,11 +46,13 @@ export function installChocolatey(logPath?: string): Promise<string | undefined>
     if (version) {
       return version;
     }
-
-    const logTo = logPath ? `Out-File -FilePath ${logPath}` : 'Write-Output';
+    const logTo = logPath ? `Tee-Object -FilePath ${logPath} | Write-Output` : 'Write-Output';
 
     return inElevatedShell(
       `if (-Not (Test-Path -Path "$env:ProgramData\\Chocolatey")) {
+          if ("RemoteSigned", "AllSigned" -notcontains $(Get-ExecutionPolicy)) {
+            Set-ExecutionPolicy -f -ExecutionPolicy RemoteSigned
+          }
           Invoke-Expression((New-Object System.Net.WebClient).DownloadString('https://chocolatey.org/install.ps1')) | ${logTo}
         } else {
           echo "Chocolatey already installed"
@@ -89,4 +91,21 @@ export function uninstall(pkg: string, version?: string) {
     return inElevatedShell(`cuninst -y ${pkg} --version ${version}`);
   }
   return inElevatedShell(`cuninst -y ${pkg}`);
+}
+
+export function setExecutionPolicy() {
+  return getExecutionPolicy().then((policy) => {
+    if (policy === 'RemoteSigned' || policy === 'AllSigned') {
+      return policy;
+    }
+    return inElevatedShell('Set-ExecutionPolicy -f -ExecutionPolicy RemoteSigned').then(() => 'RemoteSigned');
+  });
+}
+
+export function getExecutionPolicy() {
+  const ps = powershell();
+  ps.addCommand('Get-ExecutionPolicy');
+  return ps.invoke().then((result) => {
+    return result.trim();
+  });
 }
