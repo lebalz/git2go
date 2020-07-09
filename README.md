@@ -37,3 +37,9 @@ To install the node modules, run
 ```sh
 yarn install
 ```
+
+To fetch changes from the submodules, run
+
+```sh
+git submodule update --remote
+```

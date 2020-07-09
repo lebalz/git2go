@@ -108,12 +108,20 @@ function installGit(context: vscode.ExtensionContext, progress: Progress): Thena
       if (isInstalled) {
         return SuccessfulMsg('Already installed');
       }
-      if (process.platform === "darwin") {
-        return installGitOsx(context, progress);
-      } else if (process.platform === "win32") {
-        return installGitWindows(context, progress);
-      }
-      return ErroneousMsg('Unsupported platform');
+      return vscode.window.withProgress(
+        {
+          location: vscode.ProgressLocation.Notification,
+          title: "Install Git"
+        },
+        () => {
+          if (process.platform === "darwin") {
+            return installGitOsx(context, progress);
+          } else if (process.platform === "win32") {
+            return installGitWindows(context, progress);
+          }
+          return new Promise((resolve) => resolve(ErroneousMsg('Unsupported platform')));
+        }
+      );
     });
 }
 
