@@ -42,7 +42,12 @@ function installGitWindows(
       increment: 45,
     });
     return inElevatedShell(
-      `choco install -y git.install | Tee-Object -FilePath ${logPath} | Write-Output`
+      `
+      choco install -y git.install | Tee-Object -FilePath ${logPath} | Write-Output
+      \`$env:ChocolateyInstall = Convert-Path "$((Get-Command choco).Path)\\..\\.."
+      Import-Module "$env:ChocolateyInstall\\helpers\\chocolateyProfile.psm1"
+      refreshenv
+      `
     )
       .then((out) => {
         progress.report({
@@ -147,25 +152,34 @@ function generateSshKeys() {
   if (hasSshKeys()) {
     return;
   }
-  const email = execSync('git config --global user.email').toString();
+  const email = gitConfigGlobal('user.email');
   if (process.platform === 'win32') {
-    return execSync(`ssh-keygen -t rsa -C "${email}" -f %HOMEPATH%\.ssh\id_rsa -q -N ""`)
+    return execSync(`ssh-keygen -t rsa -C "${email}" -f %HOMEPATH%\.ssh\id_rsa -q -N ""`);
   }
   return execSync(`cat /dev/zero | ssh-keygen -t rsa -C "${email}" -q -N ""`);
 }
 
+function gitConfigGlobal(property: string): string {
+  try {
+    return execSync(`git config --global ${property}`).toString().trim();
+  } catch (error) {
+    return '';
+  }
+}
+
 function configure(force: boolean = false) {
   vscode.window.showInformationMessage(`Configure git settings`);
-  execSync('git config --global core.editor nano');
-  let userName = execSync('git config --global user.name').toString().trim();
-  let userEmail = execSync('git config --global user.email').toString().trim();
+  gitConfigGlobal('core.editor nano');
+ 
+  let userName = gitConfigGlobal('user.name');
+  let userEmail = gitConfigGlobal('user.email');
 
   return new Promise((resolve) => {
     if (userName.length === 0 || force) {
       return resolve(vscode.window.showInputBox({ prompt: "[Git] your name", value: userName })
         .then((gitName) => {
           if (gitName) {
-            execSync(`git config --global user.name "${gitName.trim()}"`);
+            gitConfigGlobal(`user.name "${gitName.trim()}"`);
           }
         }));
     }
@@ -176,15 +190,15 @@ function configure(force: boolean = false) {
         return resolve(vscode.window.showInputBox({ prompt: "[Git] your email address", value: userEmail })
           .then((gitMail) => {
             if (gitMail) {
-              execSync(`git config --global user.email "${gitMail.trim()}"`);
+              gitConfigGlobal(`user.email "${gitMail.trim()}"`);
             }
           }));
       }
       return resolve();
     });
   }).then(() => {
-    userName = execSync('git config --global user.name').toString().trim();
-    userEmail = execSync('git config --global user.email').toString().trim();
+    userName = gitConfigGlobal('user.name');
+    userEmail = gitConfigGlobal('user.email');
     vscode.window.showInformationMessage(`git configured:\nuser.name '${userName}'\nuser.email '${userEmail}'`);
     return generateSshKeys();
   });
