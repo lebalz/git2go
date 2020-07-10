@@ -8,8 +8,7 @@ import * as fs from "fs";
 import {
   installChocolatey,
   inElevatedShell,
-  RELOAD_ENVIRONMENT_CMD,
-  powershell,
+  inShell,
 } from "./package-manager/src/chocolatey";
 import { vscodeInstallBrew } from "./package-manager/src/homebrew";
 import { Progress, SuccessfulMsg, ErroneousMsg, SuccessMsg } from "./helpers";
@@ -43,10 +42,7 @@ function installGitWindows(
       increment: 45,
     });
     return inElevatedShell(
-      `\`${RELOAD_ENVIRONMENT_CMD}
-      choco install -y git.install | Tee-Object -FilePath ${logPath} | Write-Output
-      refreshenv
-      `
+      `choco install -y git.install | Tee-Object -FilePath ${logPath} | Write-Output`
     )
       .then((out) => {
         progress.report({
@@ -97,10 +93,7 @@ function isGitInstalled(): Thenable<boolean> {
         return false;
       });
   } else if (process.platform === "win32") {
-    const ps = powershell();
-    ps.addCommand(RELOAD_ENVIRONMENT_CMD);
-    ps.addCommand('choco list -lo');
-    return ps.invoke()
+    return inShell('choco list -lo')
       .then((result) => {
         return /git\.install /i.test(result);
       })
@@ -132,77 +125,141 @@ function installGit(context: vscode.ExtensionContext, progress: Progress): Thena
     });
 }
 
+let mySshKeyDir: string | undefined = undefined;
 function sshKeyDir(): string {
+  if (mySshKeyDir) {
+    return mySshKeyDir;
+  }
   if (process.platform === 'darwin') {
-    return execSync('echo ~/.ssh').toString().trim();
+    mySshKeyDir = execSync('echo ~/.ssh').toString().trim();
   } else if (process.platform === 'win32') {
-    return execSync("echo %HOMEDRIVE%%HOMEPATH%\\.ssh").toString().trim();
-  }
-
-  throw new Error('Plattform not supported');
-}
-
-function hasSshKeys(): boolean {
-  if (process.platform === 'win32') {
-    return execSync(`IF EXIST ${sshKeyDir()}\\id_rsa ECHO 1`).toString().trim() === '1';
+    mySshKeyDir = execSync("echo %HOMEDRIVE%%HOMEPATH%\\.ssh").toString().trim();
   } else {
-    return execSync(`test -f ${sshKeyDir()}/id_rsa && echo 1`).toString().trim() === '1';
+    throw new Error('Plattform not supported');
   }
+  return mySshKeyDir;
 }
 
-function generateSshKeys() {
-  if (hasSshKeys()) {
-    return;
-  }
-  const email = gitConfigGlobal('user.email');
+function hasSshKeys(): Promise<boolean> {
   if (process.platform === 'win32') {
-    return execSync(`ssh-keygen -t rsa -C "${email}" -f %HOMEPATH%\.ssh\id_rsa -q -N ""`);
+    return inShell(`If (Test-Path -Path ${sshKeyDir()}\\id_rsa) { echo 1 }`, { disableChocoCheck: true })
+      .then((result) => {
+        if (result.trim() === '1') {
+          return true;
+        }
+        return false;
+      });
+  } else {
+    const shellExec = promisify(exec);
+    return shellExec(`test -f ${sshKeyDir()}/id_rsa && echo 1`)
+      .then(({ stdout, stderr }) => {
+        if (stdout.trim() === '1') {
+          return true;
+        }
+        return false;
+      }).catch(() => false);
   }
-  return execSync(`cat /dev/zero | ssh-keygen -t rsa -C "${email}" -q -N ""`);
 }
 
-function gitConfigGlobal(property: string): string {
-  try {
-    return execSync(`git config --global ${property}`).toString().trim();
-  } catch (error) {
-    return '';
+function generateSshKeys(): Promise<SuccessMsg> {
+  return hasSshKeys().then((hasKeys) => {
+    if (hasKeys) {
+      return new Promise((resolve) => resolve(SuccessfulMsg('Already had SSH Keys')));
+    }
+    return gitConfigGlobal('user.email')
+      .then((email) => {
+        if (process.platform === 'win32') {
+          if (!fs.existsSync(sshKeyDir())) {
+            fs.mkdirSync(sshKeyDir(), { recursive: true });
+          }
+          const cmd = `ssh-keygen -t rsa -C "${email}" -f ${sshKeyDir()}\\id_rsa -q -N '""'`;
+          return inShell(cmd, { disableChocoCheck: true })
+            .then(() => SuccessfulMsg(`SSH Key Pairs generated in ${sshKeyDir()}`))
+            .catch((error) => ErroneousMsg(`Command failed: '${cmd}'.\n${error}`));
+        }
+
+        const shellExec = promisify(exec);
+        const unixCmd = `cat /dev/zero | ssh-keygen -t rsa -C "${email}" -q -N ""`;
+        return shellExec(unixCmd)
+          .then(({ stdout, stderr }) => {
+            if (stderr.length > 0) {
+              return ErroneousMsg(`Command failed: '${unixCmd}'.\n${stderr}`);
+            }
+            return SuccessfulMsg(`SSH Key Pairs generated in ${sshKeyDir()}`);
+          }).catch((error) => ErroneousMsg(`Command failed: '${unixCmd}'.\n${error}`));
+      });
+  });
+}
+
+function gitConfigGlobal(property: string): Promise<string> {
+  if (process.platform === 'win32') {
+    return inShell(`git config --global ${property}`, { requiredCmd: 'git', disableChocoCheck: true })
+      .then((result) => result.trim())
+      .catch(() => '');
   }
+  const shellExec = promisify(exec);
+  return shellExec(`git config --global ${property}`)
+    .then(({ stdout, stderr }) => {
+      if (stderr.length > 0) {
+        return '';
+      }
+      return stdout.trim();
+    }).catch(() => '');
+
 }
 
 function configure(force: boolean = false) {
-  vscode.window.showInformationMessage(`Configure git settings`);
-  gitConfigGlobal('core.editor nano');
- 
-  let userName = gitConfigGlobal('user.name');
-  let userEmail = gitConfigGlobal('user.email');
-
-  return new Promise((resolve) => {
-    if (userName.length === 0 || force) {
-      return resolve(vscode.window.showInputBox({ prompt: "[Git] your name", value: userName })
-        .then((gitName) => {
-          if (gitName) {
-            gitConfigGlobal(`user.name "${gitName.trim()}"`);
-          }
-        }));
+  return isGitInstalled().then((isInstalled) => {
+    if (!isInstalled) {
+      return;
     }
-    return resolve();
-  }).then(() => {
-    return new Promise((resolve) => {
-      if (userEmail.length === 0 || force) {
-        return resolve(vscode.window.showInputBox({ prompt: "[Git] your email address", value: userEmail })
-          .then((gitMail) => {
-            if (gitMail) {
-              gitConfigGlobal(`user.email "${gitMail.trim()}"`);
-            }
-          }));
-      }
-      return resolve();
-    });
-  }).then(() => {
-    userName = gitConfigGlobal('user.name');
-    userEmail = gitConfigGlobal('user.email');
-    vscode.window.showInformationMessage(`git configured:\nuser.name '${userName}'\nuser.email '${userEmail}'`);
-    return generateSshKeys();
+    vscode.window.showInformationMessage(`Configure git settings`);
+    return gitConfigGlobal('core.editor nano')
+      .then((): Promise<string> => {
+        return gitConfigGlobal('user.name');
+      }).then((userName): Thenable<string | undefined> => {
+        if (userName.length === 0 || force) {
+          return vscode.window.showInputBox({ prompt: "[Git] your name", value: userName });
+        }
+        return new Promise((resolve) => resolve(undefined));
+      }).then((gitName) => {
+        if (gitName && gitName.trim().length > 0) {
+          return gitConfigGlobal(`user.name "${gitName.trim()}"`);
+        }
+        return new Promise((resolve) => resolve(undefined));
+      }).then((): Promise<string> => {
+        return gitConfigGlobal('user.email');
+      }).then((userEmail): Thenable<string | undefined> => {
+        if (userEmail.length === 0 || force) {
+          return vscode.window.showInputBox({ prompt: "[Git] your email", value: userEmail });
+        }
+        return new Promise((resolve) => resolve(undefined));
+      }).then((gitEmail) => {
+        if (gitEmail && gitEmail.trim().length > 0) {
+          return gitConfigGlobal(`user.email "${gitEmail.trim()}"`);
+        }
+        return new Promise((resolve) => resolve(undefined));
+      }).then(() => {
+        return Promise.all([
+          gitConfigGlobal('user.name'),
+          gitConfigGlobal('user.email')
+        ]).then((configs) => {
+          return { userName: configs[0], userEmail: configs[1] };
+        });
+      }).then(({ userName, userEmail }) => {
+        vscode.window.showInformationMessage(`git configured:\nuser.name '${userName}'\nuser.email '${userEmail}'`);
+        return generateSshKeys();
+      }).then((result) => {
+        if (result.msg !== 'Already had SSH Keys') {
+          if (result.success) {
+            vscode.window.showInformationMessage(result.msg!);
+          } else {
+            vscode.window.showErrorMessage(result.error!);
+          }
+
+        }
+
+      });
   });
 }
 
