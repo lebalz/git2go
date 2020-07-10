@@ -1,10 +1,6 @@
 # Git2Go
 
-<a href="https://marketplace.visualstudio.com/items?itemName=lebalz.git2go">
-
 ![Git2Go](logo.png)
-
-</a>
 
 Install the extension from the [Marketplace](https://marketplace.visualstudio.com/items?itemName=lebalz.git2go).
 
@@ -17,7 +13,7 @@ The git installation is configured with `name` and `email` and if not present ne
 
 - `Git2Go: Install` installs git and configures git on your computer.
 - `Git2Go: Configure` (Re)configures git.
-- `Git2Go: Show public ssh key`
+- `Git2Go: Copy public ssh key` copy the public key to the clipboard
 
 [GitHub](https://github.com/lebalz/git2go)
 
