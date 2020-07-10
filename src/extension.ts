@@ -11,102 +11,52 @@ import {
   inShell,
 } from "./package-manager/src/chocolatey";
 import { vscodeInstallBrew } from "./package-manager/src/homebrew";
-import { Progress, SuccessfulMsg, ErroneousMsg, SuccessMsg } from "./helpers";
+import { shellExec, inOsShell, vscodeInstallPackageManager } from "./package-manager/src/packageManager";
+import { Progress, TaskMessage, ErrorMsg, SuccessMsg } from "./package-manager/src/helpers";
 
 function installGitWindows(
-  context: vscode.ExtensionContext,
-  progress: Progress
-): Thenable<SuccessMsg> {
-  progress.report({ message: "Install Git", increment: 15 });
-  return installChocolatey().then((version) => {
-    if (!version) {
-      vscode.window.showErrorMessage(
-        "Could not install the package manager 'chocolatey'. Make sure to install it manually."
-      );
-      return ErroneousMsg('Could not install chocolatey.');
-    }
+  context: vscode.ExtensionContext
+): Thenable<TaskMessage> {
+  if (!fs.existsSync(context.logPath)) {
+    fs.mkdirSync(context.logPath);
+  }
+  const logPath = `${context.logPath}\\chocolog_${Date.now()}.log`;
 
-    progress.report({
-      message: `Chocolatey '${version}' Installed`,
-      increment: 40,
+  return inElevatedShell(
+    `choco install -y git.install | Tee-Object -FilePath ${logPath} | Write-Output`
+  )
+    .then((result) => {
+      if (result.success) {
+        return SuccessMsg('Installed Git');
+      }
+      vscode.window.showErrorMessage(`Trouble installing git:\n${result.error}`);
+      return result;
     });
-
-    if (!fs.existsSync(`${context.extensionPath}\\logs`)) {
-      fs.mkdirSync(`${context.extensionPath}\\logs`);
-    }
-
-    const logPath = `${context.extensionPath}\\logs\\chocolog_${Date.now()}.log`;
-
-    progress.report({
-      message: `Install Git`,
-      increment: 45,
-    });
-    return inElevatedShell(
-      `choco install -y git.install | Tee-Object -FilePath ${logPath} | Write-Output`
-    )
-      .then((out) => {
-        progress.report({
-          message: `Git installed:\n${out}`,
-          increment: 80,
-        });
-        return SuccessfulMsg('Installed Git');
-      })
-      .catch((error) => {
-        vscode.window.showErrorMessage(`Trouble installing git:\n${error}`);
-        return ErroneousMsg(error);
-      });
-  }).catch((err) => {
-    return ErroneousMsg(err);
-  });
 }
 
-function installGitOsx(context: vscode.ExtensionContext, progress: Progress): Thenable<SuccessMsg> {
-  return vscodeInstallBrew(context, progress, 30).then((success) => {
-    if (!success) {
-      return ErroneousMsg('Brew could not be installed');
-    }
-    const shellExec = promisify(exec);
-    return shellExec('brew install git').then(({ stdout, stderr }) => {
-      if (stderr.length > 0) {
-        return ErroneousMsg(stderr);
-      }
-      return SuccessfulMsg(stdout);
-    });
-  });
+function installGitOsx(context: vscode.ExtensionContext): Thenable<TaskMessage> {
+  if (!fs.existsSync(context.logPath)) {
+    fs.mkdirSync(context.logPath);
+  }
+  const logPath = `${context.logPath}\\brewlog_${Date.now()}.log`;
+  return shellExec(`brew install git &>> ${logPath}`);
 }
 
 function isGitInstalled(): Thenable<boolean> {
-  if (process.platform === "darwin") {
-    const shellExec = promisify(exec);
-    return shellExec('git --version')
-      .then(({ stdout, stderr }) => {
-        if (stderr.length > 0) {
-          return false;
-        }
-        if (stdout.length === 0) {
-          return false;
-        }
+  return inOsShell('git --version', { disableChocoCheck: true, requiredCmd: 'git' })
+    .then((result) => {
+      if (result.success && result.msg.length > 0) {
         return true;
-      })
-      .catch((err) => {
-        console.log(err);
-        return false;
-      });
-  } else if (process.platform === "win32") {
-    return inShell('choco list -lo')
-      .then((result) => {
-        return /git\.install /i.test(result);
-      })
-      .catch(() => false);
-  }
-  return new Promise((resolve) => resolve(false));
+      }
+      return false;
+    });
 }
 
-function installGit(context: vscode.ExtensionContext, progress: Progress): Thenable<SuccessMsg> {
+function installGit(context: vscode.ExtensionContext, progress: Progress): Thenable<TaskMessage> {
   return isGitInstalled()
     .then((isInstalled) => {
       if (isInstalled) {
-        return SuccessfulMsg('Already installed');
+        return SuccessMsg('Already installed');
       }
       return vscode.window.withProgress(
         {
@@ -114,12 +64,18 @@ function installGit(context: vscode.ExtensionContext, progress: Progress): Thena
           title: "Install Git"
         },
         () => {
-          if (process.platform === "darwin") {
-            return installGitOsx(context, progress);
-          } else if (process.platform === "win32") {
-            return installGitWindows(context, progress);
-          }
-          return new Promise((resolve) => resolve(ErroneousMsg('Unsupported platform')));
+          return vscodeInstallPackageManager(context, progress, 30).then((success) => {
+            progress.report({ message: "Install Git", increment: 35 });
+            if (success) {
+              if (process.platform === "darwin") {
+                return installGitOsx(context);
+              } else if (process.platform === "win32") {
+                return installGitWindows(context);
+              }
+              return ErrorMsg('Unsupported platform');
+            }
+            return ErrorMsg('Package manager could not be installed');
+          });
         }
       );
     });
@@ -140,31 +96,30 @@ function sshKeyDir(): string {
   return mySshKeyDir;
 }
 
-function hasSshKeys(): Promise<boolean> {
+function hasSshKeys(): Thenable<boolean> {
   if (process.platform === 'win32') {
     return inShell(`If (Test-Path -Path ${sshKeyDir()}\\id_rsa) { echo 1 }`, { disableChocoCheck: true })
       .then((result) => {
-        if (result.trim() === '1') {
+        if (result.success && result.msg === '1') {
           return true;
         }
         return false;
       });
   } else {
-    const shellExec = promisify(exec);
     return shellExec(`test -f ${sshKeyDir()}/id_rsa && echo 1`)
-      .then(({ stdout, stderr }) => {
-        if (stdout.trim() === '1') {
+      .then((result) => {
+        if (result.success && result.msg === '1') {
           return true;
         }
         return false;
-      }).catch(() => false);
+      });
   }
 }
 
-function generateSshKeys(): Promise<SuccessMsg> {
+function generateSshKeys(): Thenable<TaskMessage> {
   return hasSshKeys().then((hasKeys) => {
     if (hasKeys) {
-      return new Promise((resolve) => resolve(SuccessfulMsg('Already had SSH Keys')));
+      return new Promise((resolve) => resolve(SuccessMsg('Already had SSH Keys')));
     }
     return gitConfigGlobal('user.email')
       .then((email) => {
@@ -174,38 +129,35 @@ function generateSshKeys(): Promise<SuccessMsg> {
           }
           const cmd = `ssh-keygen -t rsa -C "${email}" -f ${sshKeyDir()}\\id_rsa -q -N '""'`;
           return inShell(cmd, { disableChocoCheck: true })
-            .then(() => SuccessfulMsg(`SSH Key Pairs generated in ${sshKeyDir()}`))
-            .catch((error) => ErroneousMsg(`Command failed: '${cmd}'.\n${error}`));
+            .then((result) => {
+              if (result.success) {
+                return SuccessMsg(`SSH Key Pairs generated in ${sshKeyDir()}`)
+              }
+              return ErrorMsg(`Command failed: '${cmd}'.\n${result.error}`);
+            });
         }
-
-        const shellExec = promisify(exec);
         const unixCmd = `cat /dev/zero | ssh-keygen -t rsa -C "${email}" -q -N ""`;
         return shellExec(unixCmd)
-          .then(({ stdout, stderr }) => {
-            if (stderr.length > 0) {
-              return ErroneousMsg(`Command failed: '${unixCmd}'.\n${stderr}`);
+          .then((result) => {
+            if (!result.success) {
+              return ErrorMsg(`Command failed: '${unixCmd}'.\n${result.error}`);
             }
-            return SuccessfulMsg(`SSH Key Pairs generated in ${sshKeyDir()}`);
-          }).catch((error) => ErroneousMsg(`Command failed: '${unixCmd}'.\n${error}`));
+            return SuccessMsg(`SSH Key Pairs generated in ${sshKeyDir()}`);
+          });
       });
   });
 }
 
-function gitConfigGlobal(property: string): Promise<string> {
-  if (process.platform === 'win32') {
-    return inShell(`git config --global ${property}`, { requiredCmd: 'git', disableChocoCheck: true })
-      .then((result) => result.trim())
-      .catch(() => '');
-  }
-  const shellExec = promisify(exec);
-  return shellExec(`git config --global ${property}`)
-    .then(({ stdout, stderr }) => {
-      if (stderr.length > 0) {
-        return '';
-      }
-      return stdout.trim();
-    }).catch(() => '');
-
+function gitConfigGlobal(property: string): Thenable<string> {
+  return inOsShell(
+    `git config --global ${property}`,
+    { requiredCmd: 'git', disableChocoCheck: true }
+  ).then((result) => {
+    if (result.success) {
+      return result.msg;
+    }
+    return '';
+  });
 }
 
 function configure(force: boolean = false) {
@@ -215,7 +167,7 @@ function configure(force: boolean = false) {
     }
     vscode.window.showInformationMessage(`Configure git settings`);
     return gitConfigGlobal('core.editor nano')
-      .then((): Promise<string> => {
+      .then(() => {
         return gitConfigGlobal('user.name');
       }).then((userName): Thenable<string | undefined> => {
         if (userName.length === 0 || force) {
@@ -225,9 +177,8 @@ function configure(force: boolean = false) {
       }).then((gitName) => {
         if (gitName && gitName.trim().length > 0) {
           return gitConfigGlobal(`user.name "${gitName.trim()}"`);
-        }
-        return new Promise((resolve) => resolve(undefined));
-      }).then((): Promise<string> => {
+        };
+      }).then(() => {
         return gitConfigGlobal('user.email');
       }).then((userEmail): Thenable<string | undefined> => {
         if (userEmail.length === 0 || force) {
@@ -238,7 +189,6 @@ function configure(force: boolean = false) {
         if (gitEmail && gitEmail.trim().length > 0) {
           return gitConfigGlobal(`user.email "${gitEmail.trim()}"`);
         }
-        return new Promise((resolve) => resolve(undefined));
       }).then(() => {
         return Promise.all([
           gitConfigGlobal('user.name'),
@@ -256,9 +206,7 @@ function configure(force: boolean = false) {
           } else {
             vscode.window.showErrorMessage(result.error!);
           }
-
         }
-
       });
   });
 }
@@ -289,7 +237,7 @@ export function activate(context: vscode.ExtensionContext) {
               if (!success.success) {
                 throw new Error("Installation failed.");
               }
-              progress.report({ message: "Configure...", increment: 95 });
+              progress.report({ message: "Configure...", increment: 80 });
               return configure();
             })
             .then(() => {
