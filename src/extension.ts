@@ -1,18 +1,16 @@
 // The module 'vscode' contains the VS Code extensibility API
 // Import the module and reference it with the alias vscode in your code below
 import * as vscode from "vscode";
-import { promisify } from "util";
-import { exec, execSync } from "child_process";
+import { execSync } from "child_process";
 
 import * as fs from "fs";
 import {
-  installChocolatey,
   inElevatedShell,
   inShell,
 } from "./package-manager/src/chocolatey";
-import { vscodeInstallBrew } from "./package-manager/src/homebrew";
 import { shellExec, inOsShell, vscodeInstallPackageManager } from "./package-manager/src/packageManager";
 import { Progress, TaskMessage, ErrorMsg, SuccessMsg } from "./package-manager/src/helpers";
+import { Logger } from "./logger";
 
 function installGitWindows(
   context: vscode.ExtensionContext
@@ -45,10 +43,10 @@ function installGitOsx(context: vscode.ExtensionContext): Thenable<TaskMessage> 
 function isGitInstalled(): Thenable<boolean> {
   return inOsShell('git --version', { disableChocoCheck: true, requiredCmd: 'git' })
     .then((result) => {
-      if (result.success && result.msg.length > 0) {
-        return true;
-      }
-      return false;
+      const isInstalled = result.success && result.msg.length > 0;
+      Logger.log('Git installed: ', isInstalled);
+      return vscode.commands.executeCommand('setContext', 'git2go:isGitInstalled', isInstalled)
+        .then(() => isInstalled);
     });
 }
 
@@ -166,57 +164,74 @@ function configure(force: boolean = false) {
       return;
     }
     vscode.window.showInformationMessage(`Configure git settings`);
-    return gitConfigGlobal('core.editor nano')
-      .then(() => {
-        return gitConfigGlobal('user.name');
-      }).then((userName): Thenable<string | undefined> => {
-        if (userName.length === 0 || force) {
-          return vscode.window.showInputBox({ prompt: "[Git] your name", value: userName });
+    let gitConfig = { name: '', email: '' };
+    return Promise.all([
+      gitConfigGlobal('user.name'),
+      gitConfigGlobal('user.email')
+    ]).then((configs) => {
+      gitConfig.name = configs[0];
+      gitConfig.email = configs[1];
+    }).then((): Thenable<string | undefined> => {
+      if (gitConfig.name.length === 0 || force) {
+        return vscode.window.showInputBox({ prompt: "[Git] your name", value: gitConfig.name });
+      }
+      return new Promise((resolve) => resolve(undefined));
+    }).then((gitName) => {
+      if (gitName && gitName.trim().length > 0) {
+        return gitConfigGlobal(`user.name "${gitName.trim()}"`);
+      };
+      return new Promise((resolve) => resolve(undefined));
+    }).then((): Thenable<string | undefined> => {
+      if (gitConfig.email.length === 0 || force) {
+        return vscode.window.showInputBox({ prompt: "[Git] your email", value: gitConfig.email });
+      }
+      return new Promise((resolve) => resolve(undefined));
+    }).then((gitEmail) => {
+      if (gitEmail && gitEmail.trim().length > 0) {
+        return gitConfigGlobal(`user.email "${gitEmail.trim()}"`);
+      }
+      return new Promise((resolve) => resolve(undefined));
+    }).then(() => {
+      return gitConfigGlobal('core.editor nano');
+    }).then(() => {
+      return generateSshKeys();
+    }).then((result) => {
+      if (result.msg !== 'Already had SSH Keys') {
+        if (result.success) {
+          vscode.window.showInformationMessage(result.msg!);
+        } else {
+          vscode.window.showErrorMessage(result.error!);
         }
-        return new Promise((resolve) => resolve(undefined));
-      }).then((gitName) => {
-        if (gitName && gitName.trim().length > 0) {
-          return gitConfigGlobal(`user.name "${gitName.trim()}"`);
-        };
-      }).then(() => {
-        return gitConfigGlobal('user.email');
-      }).then((userEmail): Thenable<string | undefined> => {
-        if (userEmail.length === 0 || force) {
-          return vscode.window.showInputBox({ prompt: "[Git] your email", value: userEmail });
-        }
-        return new Promise((resolve) => resolve(undefined));
-      }).then((gitEmail) => {
-        if (gitEmail && gitEmail.trim().length > 0) {
-          return gitConfigGlobal(`user.email "${gitEmail.trim()}"`);
-        }
-      }).then(() => {
-        return Promise.all([
-          gitConfigGlobal('user.name'),
-          gitConfigGlobal('user.email')
-        ]).then((configs) => {
-          return { userName: configs[0], userEmail: configs[1] };
-        });
-      }).then(({ userName, userEmail }) => {
-        vscode.window.showInformationMessage(`git configured:\nuser.name '${userName}'\nuser.email '${userEmail}'`);
-        return generateSshKeys();
-      }).then((result) => {
-        if (result.msg !== 'Already had SSH Keys') {
-          if (result.success) {
-            vscode.window.showInformationMessage(result.msg!);
-          } else {
-            vscode.window.showErrorMessage(result.error!);
-          }
-        }
+      }
+    }).then(() => {
+      return Promise.all([
+        gitConfigGlobal('user.name'),
+        gitConfigGlobal('user.email')
+      ]).then((configs) => {
+        return { userName: configs[0], userEmail: configs[1] };
       });
+    }).then(({ userName, userEmail }) => {
+      vscode.window.showInformationMessage(`git configured:\nuser.name: '${userName}'\nuser.email: '${userEmail}'`);
+    });
   });
 }
 
 // this method is called when your extension is activated
 // your extension is activated the very first time the command is executed
 export function activate(context: vscode.ExtensionContext) {
-  // Use the console to output diagnostic information (console.log) and errors (console.error)
-  // This line of code will only be executed once when your extension is activated
-  console.log('Congratulations, your extension "git2go" is now active!');
+  Logger.configure('Git2Go');
+  Logger.log('Welcome to Git2Go');
+  isGitInstalled().then((isInstalled) => {
+    if (!isInstalled) {
+      vscode.window.showInformationMessage(
+        'Git is not installed', 'Install now'
+      ).then((selection) => {
+        if (selection === 'Install now') {
+          return vscode.commands.executeCommand('git2go.install');
+        }
+      });
+    }
+  });
 
   // The command has been defined in the package.json file
   // Now provide the implementation of the command with registerCommand
@@ -224,6 +239,7 @@ export function activate(context: vscode.ExtensionContext) {
   let installDisposer = vscode.commands.registerCommand(
     "git2go.install",
     () => {
+      Logger.show();
       vscode.window.withProgress(
         {
           location: vscode.ProgressLocation.Notification,
@@ -245,6 +261,7 @@ export function activate(context: vscode.ExtensionContext) {
               vscode.window.showInformationMessage(
                 "Git installed and configured."
               );
+              vscode.commands.executeCommand('git2go.copySshKey');
             });
         }
       );
@@ -254,11 +271,19 @@ export function activate(context: vscode.ExtensionContext) {
   let configureDisposer = vscode.commands.registerCommand(
     "git2go.configure",
     () => {
-      configure(true).then(() => {
-        vscode.window.showInformationMessage(
-          'Configured Git'
-        );
-      });
+      vscode.window.withProgress(
+        {
+          location: vscode.ProgressLocation.Notification,
+          title: "[Git2go]: Configure"
+        },
+        (_progress, _token) => {
+          return configure(true).then(() => {
+            vscode.window.showInformationMessage(
+              'Git Configured'
+            );
+          });
+        }
+      );
     }
   );
 
@@ -278,9 +303,23 @@ export function activate(context: vscode.ExtensionContext) {
     }
   );
 
+  let checkInstallationDisposer = vscode.commands.registerCommand(
+    "git2go.checkInstallation",
+    () => {
+      isGitInstalled().then((isInstalled) => {
+        if (isInstalled) {
+          vscode.window.showInformationMessage('Git is installed on your system');
+        } else {
+          vscode.window.showWarningMessage('Git is not installed on your system');
+        }
+      });
+    }
+  );
+
   context.subscriptions.push(installDisposer);
   context.subscriptions.push(configureDisposer);
   context.subscriptions.push(copySshKeyDisposer);
+  context.subscriptions.push(checkInstallationDisposer);
 }
 
 // this method is called when your extension is deactivated

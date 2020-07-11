@@ -3,7 +3,7 @@
 	"displayName": "git2go",
 	"publisher": "lebalz",
 	"description": "install and configure git to start straight away",
-	"version": "0.0.21",
+	"version": "0.0.22",
 	"engines": {
 		"vscode": "^1.46.0"
 	},
@@ -26,26 +26,46 @@
 	],
 	"extensionPack": [],
 	"activationEvents": [
-		"onCommand:git2go.install",
-		"onCommand:git2go.configure",
-		"onCommand:git2go.copySshKey"
+		"onStartupFinished"
 	],
 	"main": "./out/extension.js",
 	"contributes": {
 		"commands": [
 			{
 				"command": "git2go.install",
-				"title": "Git2Go: Install"
+				"category": "Git2Go",
+				"title": "Install"
+			},
+			{
+				"command": "git2go.checkInstallation",
+				"category": "Git2Go",
+				"title": "Git Installed?"
 			},
 			{
 				"command": "git2go.configure",
-				"title": "Git2Go: Configure"
+				"category": "Git2Go",
+				"title": "Configure",
+				"when": "git2go:isGitInstalled"
 			},
 			{
 				"command": "git2go.copySshKey",
-				"title": "Git2Go: Copy Public SSH Key"
+				"category": "Git2Go",
+				"title": "Copy Public SSH Key",
+				"when": "git2go:isGitInstalled"
 			}
-		]
+		],
+		"menus": {
+			"commandPalette": [
+				{
+					"command": "git2go.configure",
+					"when": "git2go:isGitInstalled"
+				},
+				{
+					"command": "git2go.copySshKey",
+					"when": "git2go:isGitInstalled"
+				}
+			]
+		}
 	},
 	"scripts": {
 		"vscode:prepublish": "yarn run compile",
