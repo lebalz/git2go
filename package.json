@@ -3,7 +3,7 @@
 	"displayName": "git2go",
 	"publisher": "lebalz",
 	"description": "install and configure git to start straight away",
-	"version": "0.0.23",
+	"version": "0.0.24",
 	"engines": {
 		"vscode": "^1.46.0"
 	},
@@ -26,7 +26,9 @@
 	],
 	"extensionPack": [],
 	"activationEvents": [
-		"onStartupFinished"
+		"onStartupFinished",
+		"onCommand:git2go.install",
+		"onCommand:git2go.checkInstallation"
 	],
 	"main": "./out/extension.js",
 	"contributes": {
