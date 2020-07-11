@@ -223,7 +223,7 @@ export function activate(context: vscode.ExtensionContext) {
   Logger.log('Welcome to Git2Go');
   isGitInstalled().then((isInstalled) => {
     if (!isInstalled) {
-      vscode.window.showInformationMessage(
+      vscode.window.showWarningMessage(
         'Git is not installed', 'Install now'
       ).then((selection) => {
         if (selection === 'Install now') {
@@ -310,7 +310,15 @@ export function activate(context: vscode.ExtensionContext) {
         if (isInstalled) {
           vscode.window.showInformationMessage('Git is installed on your system');
         } else {
-          vscode.window.showWarningMessage('Git is not installed on your system');
+          if (!isInstalled) {
+            vscode.window.showWarningMessage(
+              'Git is not installed', 'Install now'
+            ).then((selection) => {
+              if (selection === 'Install now') {
+                return vscode.commands.executeCommand('git2go.install');
+              }
+            });
+          }
         }
       });
     }

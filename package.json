@@ -3,7 +3,7 @@
 	"displayName": "git2go",
 	"publisher": "lebalz",
 	"description": "install and configure git to start straight away",
-	"version": "0.0.22",
+	"version": "0.0.23",
 	"engines": {
 		"vscode": "^1.46.0"
 	},
@@ -44,14 +44,12 @@
 			{
 				"command": "git2go.configure",
 				"category": "Git2Go",
-				"title": "Configure",
-				"when": "git2go:isGitInstalled"
+				"title": "Configure"
 			},
 			{
 				"command": "git2go.copySshKey",
 				"category": "Git2Go",
-				"title": "Copy Public SSH Key",
-				"when": "git2go:isGitInstalled"
+				"title": "Copy Public SSH Key"
 			}
 		],
 		"menus": {
