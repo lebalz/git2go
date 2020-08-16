@@ -5,39 +5,17 @@ import { execSync } from "child_process";
 
 import * as fs from "fs";
 import {
-  inElevatedShell,
   inShell,
 } from "./package-manager/src/chocolatey";
 import { shellExec, inOsShell, vscodeInstallPackageManager } from "./package-manager/src/packageManager";
 import { Progress, TaskMessage, ErrorMsg, SuccessMsg } from "./package-manager/src/helpers";
 import { Logger } from "./logger";
 
-function installGitWindows(
-  context: vscode.ExtensionContext
-): Thenable<TaskMessage> {
-  if (!fs.existsSync(context.logPath)) {
-    fs.mkdirSync(context.logPath);
-  }
-  const logPath = `${context.logPath}\\chocolog_${Date.now()}.log`;
-
-  return inElevatedShell(
-    `choco install -y git.install | Tee-Object -FilePath ${logPath} | Write-Output`
-  )
-    .then((result) => {
-      if (result.success) {
-        return SuccessMsg('Installed Git');
-      }
-      vscode.window.showErrorMessage(`Trouble installing git:\n${result.error}`);
-      return result;
-    });
-}
-
 function installGitOsx(context: vscode.ExtensionContext): Thenable<TaskMessage> {
   if (!fs.existsSync(context.logPath)) {
     fs.mkdirSync(context.logPath);
   }
-  const logPath = `${context.logPath}\\brewlog_${Date.now()}.log`;
-  return shellExec(`brew install git &>> ${logPath}`);
+  return shellExec(`brew install git`);
 }
 
 function isGitInstalled(): Thenable<boolean> {
@@ -49,6 +27,7 @@ function isGitInstalled(): Thenable<boolean> {
         .then(() => isInstalled);
     });
 }
+
 
 function installGit(context: vscode.ExtensionContext, progress: Progress): Thenable<TaskMessage> {
   return isGitInstalled()
@@ -68,7 +47,7 @@ function installGit(context: vscode.ExtensionContext, progress: Progress): Thena
               if (process.platform === "darwin") {
                 return installGitOsx(context);
               } else if (process.platform === "win32") {
-                return installGitWindows(context);
+                vscode.window.showWarningMessage("Could not install git on windows. Install it manually.")
               }
               return ErrorMsg('Unsupported platform');
             }
