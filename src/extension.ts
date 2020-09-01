@@ -48,6 +48,9 @@ function installGit(
     if (isInstalled) {
       return SuccessMsg("Already installed");
     }
+    if (process.platform !== "darwin") {
+      return ErrorMsg("Could not install git on windows. Install it manually");
+    }
     return vscode.window.withProgress(
       {
         location: vscode.ProgressLocation.Notification,
